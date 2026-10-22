@@ -371,6 +371,11 @@ const JITTER_BYTES = 20 * 48000 * 2 * 2;
 
 const videoIdOf = (url) => url?.match(/[?&]v=([\w-]{11})/)?.[1] ?? null;
 
+const RADIO_SEEDS = 3;
+
+const radioSeeds = (current, asked) =>
+  [...new Set([...asked.slice(-RADIO_SEEDS).reverse(), current?.url])].filter((url) => url && videoIdOf(url));
+
 const SOURCE_NAMES = { youtube: "YouTube", soundcloud: "SoundCloud", url: "Link direto" };
 
 const fmtDur = (s) =>
@@ -671,6 +676,7 @@ export {
   parseSource,
   prefetch,
   pruneInfo,
+  radioSeeds,
   resolveTrack,
   runYtdlp,
   scoreCandidate,

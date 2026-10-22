@@ -84,6 +84,7 @@ import {
   parseSource,
   prefetch,
   pruneInfo,
+  radioSeeds,
   resolveTrack,
   runYtdlp,
   scoreCandidate,
@@ -125,6 +126,7 @@ function getState(guildId) {
       radio: false,
       radioFilling: false,
       played: new Set(),
+      asked: [],
       vetoed: new Set(),
       lastActivity: Date.now(),
       guild: null,
@@ -181,6 +183,7 @@ function playNext(gs) {
     return;
   }
   gs.played.add(next.url);
+  if (!next.radio) gs.asked = [...gs.asked.slice(-9), next.url];
   gs.lastActivity = Date.now();
   const cached = next.file && existsSync(next.file) ? next.file : cacheLookup(next.url);
   if (cached) next.file = cached;
@@ -189,27 +192,26 @@ function playNext(gs) {
   if (gs.radio && gs.queue.length === 0) radioFill(gs, false);
 }
 
-function radioSeed(gs) {
-  const url = [gs.current?.url, ...[...gs.played].reverse()].filter(Boolean).find(videoIdOf);
-  return url ? { url } : null;
-}
-
 async function radioFill(gs, playNow) {
   if (!gs.radio || gs.radioFilling || gs.dead) return;
-  const seed = radioSeed(gs);
-  if (!seed) return;
+  const seeds = radioSeeds(gs.current, gs.asked);
+  if (!seeds.length) return;
   gs.radioFilling = true;
   try {
-    const id = videoIdOf(seed.url);
-    const mix = parseCandidates(
-      await runYtdlp(["-i", "--flat-playlist", "--playlist-end", "30", ...PRINT_FLAT, `https://www.youtube.com/watch?v=${id}&list=RD${id}`]),
-    );
-    const pick = mix.find((c) => {
-      const t = norm(c.title ?? "");
-      if (!c.url || gs.played.has(c.url) || gs.queue.some((q) => q.url === c.url)) return false;
-      if ([...gs.vetoed].some((v) => t.includes(v))) return false;
-      return !REMIX_WORDS.some((w) => t.includes(w));
-    });
+    let pick = null;
+    for (const seed of seeds) {
+      const id = videoIdOf(seed);
+      const mix = parseCandidates(
+        await runYtdlp(["-i", "--flat-playlist", "--playlist-end", "30", ...PRINT_FLAT, `https://www.youtube.com/watch?v=${id}&list=RD${id}`]),
+      );
+      pick = mix.find((c) => {
+        const t = norm(c.title ?? "");
+        if (!c.url || gs.played.has(c.url) || gs.queue.some((q) => q.url === c.url)) return false;
+        if ([...gs.vetoed].some((v) => t.includes(v))) return false;
+        return !REMIX_WORDS.some((w) => t.includes(w));
+      });
+      if (pick) break;
+    }
     if (!pick) {
       console.log("[radio] nenhuma sugestão nova no mix");
       return;
@@ -404,6 +406,7 @@ function vetoCurrent(gs, by) {
   if (!cur) return;
   const key = norm(cur.title).split(" ").slice(0, 3).join(" ");
   if (key) gs.vetoed.add(key);
+  gs.asked = gs.asked.filter((url) => url !== cur.url);
   gs.textChannel?.send(`-# ${by} vetou **${cur.title}** — não repito nesta sessão`).catch(() => {});
   playNext(gs);
 }
