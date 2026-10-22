@@ -7,7 +7,7 @@ import {
   ATTENTION_MS, BEEP_FILE, COMMAND_MAX_SECONDS, DUCK_TIMEOUT_MS, DUCK_VOLUME, FF_FAST, FF_OUT, GROQ_KEY, HOT_USER_MS, LEAVE_VERBS,
   MAX_UTTERANCE_SECONDS, PAUSE_VERBS, PLAY_VERBS, PRINT_FLAT, REMIX_WORDS, RESUME_VERBS, SKIP_VERBS, STOP_VERBS, YTDLP_BASE,
   cacheLookup, dropTrackFile, ensureBeep, gateAllowed, gateWake, infoFresh, isWakeWord, matchVerb, norm, parseCandidates, parseSource,
-  prefetch, resolveTrack, runYtdlp, shortErr, sliceSeconds, to16kMono, transcribe, videoIdOf,
+  prefetch, radioSeeds, resolveTrack, runYtdlp, shortErr, sliceSeconds, to16kMono, transcribe, videoIdOf,
 } from "./core.mjs";
 
 const PARROT_URL = (process.env.PARROT_URL ?? "https://parrot.arvore.dev").replace(/\/$/, "");
@@ -219,6 +219,7 @@ const session = {
   radio: false,
   radioFilling: false,
   played: new Set(),
+  asked: [],
   vetoed: new Set(),
   lastActivity: Date.now(),
   emptySince: null,
@@ -364,6 +365,7 @@ const playNext = (reason = "skipped") => {
     return;
   }
   session.played.add(next.url);
+  if (!next.radio) session.asked = [...session.asked.slice(-9), next.url];
   session.lastActivity = Date.now();
   const cached = next.file && existsSync(next.file) ? next.file : cacheLookup(next.url);
   if (cached) next.file = cached;
@@ -373,21 +375,24 @@ const playNext = (reason = "skipped") => {
   if (session.radio && session.queue.length === 0) radioFill(false);
 };
 
-const radioSeed = () => [session.current?.url, ...[...session.played].reverse()].filter(Boolean).find(videoIdOf) ?? null;
 const radioFill = async (playNow) => {
   if (!session.radio || session.radioFilling || session.dead) return;
-  const seed = radioSeed();
-  if (!seed) return;
+  const seeds = radioSeeds(session.current, session.asked);
+  if (!seeds.length) return;
   session.radioFilling = true;
   try {
-    const id = videoIdOf(seed);
-    const mix = parseCandidates(await runYtdlp(["-i", "--flat-playlist", "--playlist-end", "30", ...PRINT_FLAT, `https://www.youtube.com/watch?v=${id}&list=RD${id}`]));
-    const pick = mix.find((c) => {
-      const t = norm(c.title ?? "");
-      if (!c.url || session.played.has(c.url) || session.queue.some((q) => q.url === c.url)) return false;
-      if ([...session.vetoed].some((v) => t.includes(v))) return false;
-      return !REMIX_WORDS.some((w) => t.includes(w));
-    });
+    let pick = null;
+    for (const seed of seeds) {
+      const id = videoIdOf(seed);
+      const mix = parseCandidates(await runYtdlp(["-i", "--flat-playlist", "--playlist-end", "30", ...PRINT_FLAT, `https://www.youtube.com/watch?v=${id}&list=RD${id}`]));
+      pick = mix.find((c) => {
+        const t = norm(c.title ?? "");
+        if (!c.url || session.played.has(c.url) || session.queue.some((q) => q.url === c.url)) return false;
+        if ([...session.vetoed].some((v) => t.includes(v))) return false;
+        return !REMIX_WORDS.some((w) => t.includes(w));
+      });
+      if (pick) break;
+    }
     if (!pick) { log("radio", "nenhuma sugestão nova no mix"); return; }
     log("radio", `sugestão: ${pick.title}`);
     const track = { title: pick.title, url: pick.url, source: "youtube", thumb: pick.thumbnail, duration: pick.duration, by: "Rádio", radio: true, seq: ++session.seqCounter };
@@ -463,6 +468,7 @@ const vetoCurrent = (by) => {
   if (!cur) return;
   const key = norm(cur.title).split(" ").slice(0, 3).join(" ");
   if (key) session.vetoed.add(key);
+  session.asked = session.asked.filter((url) => url !== cur.url);
   note(session.textChannelId, { tone: "muted", emoji: "👎", title: `${by} vetou ${cur.title}`, text: "Não repito nesta sessão." });
   playNext();
 };
@@ -708,7 +714,7 @@ const leave = async () => {
   session.listening.clear();
   try { await room?.disconnect(); } catch {}
   sendVoiceState(null);
-  Object.assign(session, { dead: false, queue: [], current: null, nowPlaying: null, played: new Set(), vetoed: new Set(), radio: false, attention: new Map(), hotUsers: new Map(), recentCommands: new Map(), recentEnqueued: new Map(), emptySince: null });
+  Object.assign(session, { dead: false, queue: [], current: null, nowPlaying: null, played: new Set(), asked: [], vetoed: new Set(), radio: false, attention: new Map(), hotUsers: new Map(), recentCommands: new Map(), recentEnqueued: new Map(), emptySince: null });
   log("voz", "saí da sala");
 };
 
