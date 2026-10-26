@@ -278,6 +278,46 @@ async function resolveTrack(query, source = "auto") {
   return null;
 }
 
+const PLAYLIST_MAX = 50;
+
+const UNAVAILABLE_TITLE = /^\[(private|deleted|unavailable) video\]$/i;
+
+const playlistIdOf = (url) =>
+  /^https?:\/\/([\w-]+\.)?(youtube\.com|youtu\.be)\//.test(url ?? "") ? (url.match(/[?&]list=([\w-]+)/)?.[1] ?? null) : null;
+
+async function resolvePlaylist(url) {
+  const startAt = Number(url.match(/[?&]index=(\d+)/)?.[1]) || 1;
+  try {
+    const info = JSON.parse(await runYtdlp([
+      "-i", "-J", "--flat-playlist",
+      "--playlist-start", String(startAt), "--playlist-end", String(startAt + PLAYLIST_MAX - 1),
+      url,
+    ])) ?? {};
+    const entries = (info.entries ?? [])
+      .filter((e) => e?.url && videoIdOf(e.url) && !UNAVAILABLE_TITLE.test(e.title ?? ""))
+      .map((e) => ({
+        title: e.title,
+        url: e.url,
+        source: "youtube",
+        thumb: e.thumbnails?.at(-1)?.url ?? null,
+        duration: e.duration || null,
+      }));
+    const startId = videoIdOf(url);
+    const startIdx = startId ? entries.findIndex((t) => videoIdOf(t.url) === startId) : -1;
+    const tracks = startIdx > 0 ? entries.slice(startIdx) : entries;
+    if (!tracks.length) {
+      console.log(`[busca] playlist vazia ou indisponível: ${url}`);
+      return null;
+    }
+    const more = info.playlist_count ? info.playlist_count > startAt - 1 + PLAYLIST_MAX : (info.entries ?? []).length >= PLAYLIST_MAX;
+    console.log(`[busca] playlist "${info.title}": ${tracks.length} faixas${more ? " (cortada)" : ""}`);
+    return { title: info.title || "Playlist", tracks, more };
+  } catch (e) {
+    console.log(`[busca] playlist falhou: ${shortErr(e)}`);
+    return null;
+  }
+}
+
 const cacheKey = (url) => createHash("sha1").update(url).digest("hex").slice(0, 16);
 
 function cacheLookup(url) {
@@ -633,6 +673,7 @@ export {
   LOW_PRIO,
   MAX_UTTERANCE_SECONDS,
   PAUSE_VERBS,
+  PLAYLIST_MAX,
   PLAY_VERBS,
   POT_URL,
   PRINT_FLAT,
@@ -674,9 +715,11 @@ export {
   norm,
   parseCandidates,
   parseSource,
+  playlistIdOf,
   prefetch,
   pruneInfo,
   radioSeeds,
+  resolvePlaylist,
   resolveTrack,
   runYtdlp,
   scoreCandidate,

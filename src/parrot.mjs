@@ -5,9 +5,9 @@ import { AudioFrame, AudioSource, AudioStream, LocalAudioTrack, Room, RoomEvent,
 import { helpCard, noteCard, playerCard, queueCard, queuedCard, stageOf } from "./cards.mjs";
 import {
   ATTENTION_MS, BEEP_FILE, COMMAND_MAX_SECONDS, DUCK_TIMEOUT_MS, DUCK_VOLUME, FF_FAST, FF_OUT, GROQ_KEY, HOT_USER_MS, LEAVE_VERBS,
-  MAX_UTTERANCE_SECONDS, PAUSE_VERBS, PLAY_VERBS, PRINT_FLAT, REMIX_WORDS, RESUME_VERBS, SKIP_VERBS, STOP_VERBS, YTDLP_BASE,
+  MAX_UTTERANCE_SECONDS, PAUSE_VERBS, PLAYLIST_MAX, PLAY_VERBS, PRINT_FLAT, REMIX_WORDS, RESUME_VERBS, SKIP_VERBS, STOP_VERBS, YTDLP_BASE,
   cacheLookup, dropTrackFile, ensureBeep, gateAllowed, gateWake, infoFresh, isWakeWord, matchVerb, norm, parseCandidates, parseSource,
-  prefetch, radioSeeds, resolveTrack, runYtdlp, shortErr, sliceSeconds, to16kMono, transcribe, videoIdOf,
+  playlistIdOf, prefetch, radioSeeds, resolvePlaylist, resolveTrack, runYtdlp, shortErr, sliceSeconds, to16kMono, transcribe, videoIdOf,
 } from "./core.mjs";
 
 const PARROT_URL = (process.env.PARROT_URL ?? "https://parrot.arvore.dev").replace(/\/$/, "");
@@ -370,6 +370,8 @@ const playNext = (reason = "skipped") => {
   const cached = next.file && existsSync(next.file) ? next.file : cacheLookup(next.url);
   if (cached) next.file = cached;
   startPlayback(next, cached ? "cache" : "info");
+  const upcoming = session.queue[0];
+  if (upcoming && !upcoming.file) prefetch(upcoming);
   closeQueuedCard(next, "Já tocou", next.title);
   postPlayer(next);
   if (session.radio && session.queue.length === 0) radioFill(false);
@@ -407,8 +409,41 @@ const radioFill = async (playNow) => {
   }
 };
 
+const enqueuePlaylist = async (url, by) => {
+  const listKey = `list:${playlistIdOf(url)}`;
+  const recentTs = session.recentEnqueued.get(listKey);
+  if (recentTs && Date.now() - recentTs < 60000) { log("fila", `playlist repetida ignorada: ${url}`); return; }
+  session.recentEnqueued.set(listKey, Date.now());
+  const firstSeq = session.seqCounter + 1;
+  session.seqCounter += PLAYLIST_MAX;
+  const playlist = await resolvePlaylist(url);
+  if (!playlist) { note(session.textChannelId, { tone: "error", emoji: "🤷", title: "Não consegui abrir a playlist", text: "Confira se ela é pública, ou peça uma música por vez." }); return; }
+  const taken = new Set([session.current?.url, ...session.queue.map((t) => t.url)]);
+  const tracks = [];
+  for (const track of playlist.tracks) {
+    if (taken.has(track.url)) continue;
+    taken.add(track.url);
+    tracks.push({ ...track, by, seq: firstSeq + tracks.length });
+  }
+  if (!tracks.length) { note(session.textChannelId, { tone: "muted", emoji: "🎵", title: `“${playlist.title}” já está na fila`, text: "" }); return; }
+  const idx = session.queue.findIndex((t) => t.seq > firstSeq);
+  session.queue.splice(idx === -1 ? session.queue.length : idx, 0, ...tracks);
+  note(session.textChannelId, {
+    tone: "info",
+    emoji: "📜",
+    title: `Playlist na fila: ${playlist.title}`,
+    text: `${tracks.length} músicas, pedido de ${by}.${playlist.more ? ` A playlist é maior, então peguei só ${PLAYLIST_MAX}.` : ""}`,
+  });
+  if (!session.current) playNext();
+  else {
+    prefetch(tracks[0]);
+    refreshPlayer(500);
+  }
+};
+
 const enqueue = async (rawQuery, by) => {
   const { query, source } = parseSource(rawQuery);
+  if (playlistIdOf(query)) return enqueuePlaylist(query, by);
   const seq = ++session.seqCounter;
   const track = await resolveTrack(query, source);
   if (!track) { note(session.textChannelId, { tone: "error", emoji: "🤷", title: `Nada encontrado para “${query}”`, text: "Tente outro nome, ou diga a fonte: “…no YouTube”." }); return; }
