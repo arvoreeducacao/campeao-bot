@@ -41,6 +41,7 @@ import {
   LOW_PRIO,
   MAX_UTTERANCE_SECONDS,
   PAUSE_VERBS,
+  PLAYLIST_MAX,
   PLAY_VERBS,
   POT_URL,
   PRINT_FLAT,
@@ -82,9 +83,11 @@ import {
   norm,
   parseCandidates,
   parseSource,
+  playlistIdOf,
   prefetch,
   pruneInfo,
   radioSeeds,
+  resolvePlaylist,
   resolveTrack,
   runYtdlp,
   scoreCandidate,
@@ -188,6 +191,8 @@ function playNext(gs) {
   const cached = next.file && existsSync(next.file) ? next.file : cacheLookup(next.url);
   if (cached) next.file = cached;
   startPlayback(gs, next, cached ? "cache" : "info");
+  const upcoming = gs.queue[0];
+  if (upcoming && !upcoming.file) prefetch(upcoming);
   sendNowPlaying(gs, next);
   if (gs.radio && gs.queue.length === 0) radioFill(gs, false);
 }
@@ -341,8 +346,45 @@ function unduck(gs) {
   gs.currentResource?.volume?.setVolume(1);
 }
 
+async function enqueuePlaylist(gs, url, by) {
+  const listKey = `list:${playlistIdOf(url)}`;
+  const recentTs = gs.recentEnqueued.get(listKey);
+  if (recentTs && Date.now() - recentTs < 60000) {
+    console.log(`[fila] playlist repetida ignorada: ${url}`);
+    return;
+  }
+  gs.recentEnqueued.set(listKey, Date.now());
+  const firstSeq = gs.seqCounter + 1;
+  gs.seqCounter += PLAYLIST_MAX;
+  const playlist = await resolvePlaylist(url);
+  if (!playlist) {
+    gs.textChannel?.send("-# Não consegui abrir a playlist. Confira se ela é pública, ou peça uma música por vez.").catch(() => {});
+    return;
+  }
+  const taken = new Set([gs.current?.url, ...gs.queue.map((t) => t.url)]);
+  const tracks = [];
+  for (const track of playlist.tracks) {
+    if (taken.has(track.url)) continue;
+    taken.add(track.url);
+    tracks.push({ ...track, by, seq: firstSeq + tracks.length });
+  }
+  if (!tracks.length) {
+    gs.textChannel?.send(`-# “${playlist.title}” já está na fila`).catch(() => {});
+    return;
+  }
+  const idx = gs.queue.findIndex((t) => t.seq > firstSeq);
+  gs.queue.splice(idx === -1 ? gs.queue.length : idx, 0, ...tracks);
+  const cut = playlist.more ? ` · a playlist é maior, então peguei só ${PLAYLIST_MAX}` : "";
+  gs.textChannel?.send({
+    embeds: [{ description: `**Playlist na fila** · ${playlist.title} · ${tracks.length} músicas · pedido por ${by}${cut}`, color: GRAY }],
+  }).catch(() => {});
+  if (gs.player.state.status === AudioPlayerStatus.Idle || !gs.current) playNext(gs);
+  else prefetch(tracks[0]);
+}
+
 async function enqueue(gs, rawQuery, by) {
   const { query, source } = parseSource(rawQuery);
+  if (playlistIdOf(query)) return enqueuePlaylist(gs, query, by);
   const seq = ++gs.seqCounter;
   const track = await resolveTrack(query, source);
   if (!track) {
@@ -791,6 +833,7 @@ client.on(Events.MessageCreate, async (m) => {
             '**Rádio**: *"Campeão, liga o rádio"* — quando a fila acaba, sigo tocando parecidas. *"Campeão, essa não"* veta a atual.',
             "Saio sozinho após 5 min sem música e sem comando, ou 1 min com o canal vazio.",
             "**Por texto**: `!entra` `!play` `!pula` `!pausa` `!continua` `!para` `!fila` `!radio` `!sai`",
+            `**Playlist**: \`!play <link de playlist do YouTube>\` põe até ${PLAYLIST_MAX} músicas dela na fila.`,
           ].join("\n"),
           color: GOLD,
           footer: { text: "Campeão" },

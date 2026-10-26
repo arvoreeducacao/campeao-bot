@@ -34,6 +34,10 @@ Sempre começando com **"Campeão"** — a palavra-chave tolera erros de transcr
 `!entra` · `!play <música>` · `!pula` · `!pausa` · `!continua` · `!volta10` · `!avanca10` ·
 `!para` · `!fila` · `!radio` · `!sai` · `!ajuda`
 
+`!play` também aceita link de playlist do YouTube, inclusive Mix (`watch?v=…&list=RD…`):
+as músicas vão pra fila na ordem da playlist, até 50. Se o link aponta para uma faixa no
+meio da playlist, a fila começa nela.
+
 ### Por botão
 
 O card "Tocando agora" traz controles clicáveis: **Pausar/Retomar**, **Voltar 10s**,

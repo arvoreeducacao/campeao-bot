@@ -1,4 +1,4 @@
-import { SOURCE_NAMES, videoIdOf } from "./core.mjs";
+import { PLAYLIST_MAX, SOURCE_NAMES, videoIdOf } from "./core.mjs";
 
 const TERMINAL_STATES = new Set(["ended", "skipped", "stopped"]);
 
@@ -106,7 +106,7 @@ export const helpCard = (title = "Como usar o Campeão") => ({
         'Fonte específica: "…no YouTube" ou "…no SoundCloud". Sem indicar, o Deezer identifica a faixa oficial.',
       ],
     },
-    { title: "Por texto", lines: ["!entra !play !pula !pausa !continua !volta10 !avanca10 !para !fila !radio !ajuda !sai"] },
+    { title: "Por texto", lines: ["!entra !play !pula !pausa !continua !volta10 !avanca10 !para !fila !radio !ajuda !sai", `!play com link de playlist do YouTube põe até ${PLAYLIST_MAX} músicas dela na fila.`] },
     {
       title: "Rádio",
       lines: ['"Campeão, liga o rádio" — quando a fila acaba, sigo tocando parecidas.', '"Campeão, essa não" veta a atual e eu não repito nesta sessão.'],
