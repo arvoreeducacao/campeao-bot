@@ -208,6 +208,7 @@ O mesmo bot toca também no [Parrot](https://parrot.arvore.dev), o chat interno 
 | --- | --- |
 | `PARROT_URL` | Servidor do Parrot (padrão `https://parrot.arvore.dev`) |
 | `PARROT_BOT_TOKEN` | Token do bot `campeao` em `PARROT_BOT_TOKENS` do servidor |
+| `PARROT_CF_CLIENT_ID` / `PARROT_CF_CLIENT_SECRET` | Service token do Cloudflare Access — o `parrot.arvore.dev` fica atrás do Access, e sem ele o bot não conecta. Opcional: sem as duas, nenhum header é enviado |
 | `STT_URL` | Whisper local (padrão `http://127.0.0.1:5005/`) |
 | `CACHE_DIR` | Cache de faixas (padrão `/data/tracks`) |
 | `PARROT_BOT_NAME` | Nome do bot no Parrot (padrão: o nome do Discord, senão `Campeão`) |
