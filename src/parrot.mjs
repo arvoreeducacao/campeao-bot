@@ -12,6 +12,9 @@ import {
 
 const PARROT_URL = (process.env.PARROT_URL ?? "https://parrot.arvore.dev").replace(/\/$/, "");
 const BOT_TOKEN = process.env.PARROT_BOT_TOKEN;
+const CF_ACCESS_HEADERS = process.env.PARROT_CF_CLIENT_ID && process.env.PARROT_CF_CLIENT_SECRET
+  ? { "CF-Access-Client-Id": process.env.PARROT_CF_CLIENT_ID, "CF-Access-Client-Secret": process.env.PARROT_CF_CLIENT_SECRET }
+  : {};
 const BOT_DOMAIN_SUFFIX = "@bots.";
 const SAMPLE_RATE = 48000;
 const CHANNELS = 2;
@@ -34,7 +37,7 @@ const log = (tag, msg) => console.log(`[parrot:${tag}] ${msg}`);
 const api = async (path, init = {}) => {
   const res = await fetch(`${PARROT_URL}${path}`, {
     ...init,
-    headers: { "content-type": "application/json", authorization: `Bearer ${BOT_TOKEN}`, ...(init.headers ?? {}) },
+    headers: { "content-type": "application/json", authorization: `Bearer ${BOT_TOKEN}`, ...CF_ACCESS_HEADERS, ...(init.headers ?? {}) },
     body: init.body === undefined ? undefined : JSON.stringify(init.body),
     signal: AbortSignal.timeout(15000),
   });
@@ -45,7 +48,7 @@ const api = async (path, init = {}) => {
 const apiForm = async (path, form) => {
   const res = await fetch(`${PARROT_URL}${path}`, {
     method: "POST",
-    headers: { authorization: `Bearer ${BOT_TOKEN}` },
+    headers: { authorization: `Bearer ${BOT_TOKEN}`, ...CF_ACCESS_HEADERS },
     body: form,
     signal: AbortSignal.timeout(30000),
   });
@@ -913,7 +916,7 @@ const handleSocketEvent = (data) => {
 
 const connectSocket = () => {
   const wsUrl = PARROT_URL.replace(/^http/, "ws") + `/ws?token=${encodeURIComponent(BOT_TOKEN)}`;
-  const ws = new WebSocket(wsUrl);
+  const ws = new WebSocket(wsUrl, { headers: CF_ACCESS_HEADERS });
   socket = ws;
   connectingSince = Date.now();
   const connectTimer = setTimeout(() => {
